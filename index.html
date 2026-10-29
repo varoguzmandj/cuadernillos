@@ -7505,7 +7505,8 @@ async function fsReq(method,name,body,ms,ka){
 const fsErr=st=>st===403||st===401?'clave':st===400||st===413?'datos':st===404?'proyecto':st===429?'cupo':'red';
 async function fsGet(name,ms){
   const r=await fsReq('GET',name,null,ms);
-  if(r.st===404&&r.j&&r.j.error&&/not found|NOT_FOUND/i.test(JSON.stringify(r.j.error))&&!/project|database/i.test(r.j.error.message||''))return{ok:true,item:null};
+  /* documento que aún no existe (alumno que nunca ha guardado): «Document "projects/…/documents/…" not found.» — no es un error */
+  if(r.st===404&&r.j&&r.j.error&&(/^\s*Document\b/i.test(r.j.error.message||'')||!/database|project/i.test(r.j.error.message||'')))return{ok:true,item:null};
   if(r.st!==200||!r.j||!r.j.fields)return{ok:false,err:r.err||fsErr(r.st)};
   const f=r.j.fields;
   try{
@@ -7725,7 +7726,7 @@ async function syNet(){
   const gOk=rows.filter(r=>/^script\.google(usercontent)?\.com$/.test(r.host)).every(r=>r.st==='ok');
   let sum;
   if(seg.length&&!ok.length)sum='El sitio donde está abierta la app ('+location.host+') no deja enviar datos a servidores externos: hay que abrir la app desde una web propia (por ejemplo GitHub Pages).';
-  else if(gOk)sum='Esta conexión deja usar Google: la sincronización puede funcionar.';
+  else if(rows.some(r=>r.host==='firestore.googleapis.com'&&r.st==='ok'))sum='Esta conexión deja pasar Firebase (firestore.googleapis.com), que es lo que usa la app para guardar.';
   else if(ok.length)sum='Google está bloqueado en esta conexión, pero deja pasar: '+ok.map(r=>r.host).join(', ')+'.';
   else sum='Esta conexión no deja salir a ninguno de los servicios probados (¿el Wi-Fi del centro?). Prueba con los datos del móvil.';
   return{rows,sum,where:location.origin,ts:Date.now()};
