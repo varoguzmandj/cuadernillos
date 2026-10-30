@@ -1318,6 +1318,9 @@ button.kim-it:hover{border-color:var(--brand)}
 .tri-lock h2{margin:0;font:600 1.5rem var(--f-display)}.tri-lock p{margin:0;color:var(--ink-2);font-size:1.1rem}
 .tri-lock-i{display:grid;place-items:center;width:72px;height:72px;border-radius:50%;background:var(--sun-soft);color:var(--sun-ink)}.tri-lock-i svg{width:36px;height:36px}
 .weeks button.tri-off{opacity:.55;border-style:dashed}
+
+.ucard.ulock{opacity:.6;border-style:dashed;cursor:default;box-shadow:none}
+.ulock-t{display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--ink-2);font-size:.9rem}
 </style>
 
 <div id="app" lang="es"></div>
@@ -1345,7 +1348,7 @@ const newStu=()=>({done:{},errs:{},data:{},games:{},srs:{},time:{},mood:{},sess:
 /* sp: PIN de entrada de cada alumno (nombre en minúsculas → 4 cifras; '' = sin PIN) · spOff: el profe ha desactivado el PIN del alumnado · sl: intentos fallidos y esperas de cada alumno */
 /* bad/lockUntil/locks: intentos fallidos del PIN y esperas · rosterV: versión de la lista de la clase ya copiada a esta tablet · start: día en que empieza el plan · nodays: días sin clase añadidos por el profe · cal: sesiones marcadas por módulo
    notes: notas del cuaderno de aula · ptr: por dónde vamos (lección) en cada módulo · kbd: teclado del dispositivo permitido en los huecos de palabra */
-const CFG_DEF={thr:60,max:3,bad:0,lockUntil:0,locks:0,lastBad:0,rosterV:'',purgeV:'',dev:'',tab:'',tri:{},roster:[],free:true,start:'2026-10-26',sv:'',sy:{},syr:'',syt:0,syp:null,nodays:[],cal:{},notes:{},ptr:{},play:true,voice:'',acc:'auto',vrate:0.9,pron:{},vmode:'auto',vdef:'f',rg:{},gm:{},cm:{},demo:true,sp:{},spOff:false,sl:{}};
+const CFG_DEF={thr:60,max:3,bad:0,lockUntil:0,locks:0,lastBad:0,rosterV:'',purgeV:'',dev:'',tab:'',tri:{},wkOff:false,roster:[],free:true,start:'2026-10-26',sv:'',sy:{},syr:'',syt:0,syp:null,nodays:[],cal:{},notes:{},ptr:{},play:true,voice:'',acc:'auto',vrate:0.9,pron:{},vmode:'auto',vdef:'f',rg:{},gm:{},cm:{},demo:true,sp:{},spOff:false,sl:{}};
 function cfg(){
   const c=store.cfg||(store.cfg={});
   for(const k in CFG_DEF){const d=CFG_DEF[k];if(c[k]===undefined)c[k]=Array.isArray(d)?[]:(d&&typeof d==='object')?{}:d;}
@@ -1447,7 +1450,23 @@ const triOn=n=>n===1||!S()||openAll()||!!((cfg().tri||{})[n]);
 const utTri=(m,ut)=>{const t=ut?m.tris.find(t=>t.uts.some(z=>z[0]===ut)):null;return t?t.n:0;};
 function sesTri(m,ses){let n=utTri(m,ses.ut);const u=ses.u&&UBY[ses.u];if(u)n=Math.max(n,u.tri.n);(ses.items||[]).forEach(it=>{const v=it.u&&UBY[it.u];if(v)n=Math.max(n,v.tri.n);});return n||1;}
 function weekTri(m,w){let n=utTri(m,w.ut);(w.sess||[]).forEach(x=>{n=Math.max(n,sesTri(m,x));});return n||1;}
-function simLocked(sm){const us=UNITS.filter(u=>sm.mods.includes(u.mod.id)&&sm.units.includes(u.key));return us.length>0&&us.every(u=>!triOn(u.tri.n));}
+/* semana a semana (versión 27): un alumno real solo entra en las sesiones de esta semana y de las anteriores, y en las fichas que el plan ya ha sacado.
+   El profe lo apaga en Ajustes (wkOff). Lo que nunca sale en el plan queda abierto. */
+const monOf=iso=>addDaysISO(iso,-((dowOf(iso)+6)%7));
+const wkGate=()=>!!S()&&!openAll()&&!cfg().wkOff;
+const isoOpen=iso=>!wkGate()||!iso||monOf(iso)<=monOf(todayISO());
+const UF={},UFB={busy:false};
+function unitFirst(u){
+  if(UFB.busy)return null;
+  const m=u.mod;let pl=null;UFB.busy=true;try{pl=planOf(m);}catch(e){}finally{UFB.busy=false;}
+  if(!pl)return null;
+  let c=UF[m.id];
+  if(!c||c.pl!==pl){const mp={};pl.slots.forEach(sl=>{const x=sl.sess;if(!x)return;[x.u,...(x.items||[]).map(i=>i.u)].forEach(id=>{if(id&&(!mp[id]||sl.date<mp[id]))mp[id]=sl.date;});});c=UF[m.id]={pl,mp};}
+  return c.mp[u.uid]||null;
+}
+const unitOn=u=>triOn(u.tri.n)&&isoOpen(unitFirst(u));
+const sesOpen=(m,ses)=>triOn(sesTri(m,ses))&&isoOpen(ses.date);
+function simLocked(sm){const us=UNITS.filter(u=>sm.mods.includes(u.mod.id)&&sm.units.includes(u.key));return us.length>0&&us.every(u=>!unitOn(u));}
 
 /* ================= utilidades ================= */
 function h(tag,props,...kids){
@@ -3608,7 +3627,7 @@ function vRun(cfg){
 
 /* ================= entrenamiento: repaso espaciado ================= */
 function unitSeen(u){const s=S();return u.pages.some((pg,pi)=>pg.parts.some((p,j)=>s.done[pid(u,pi,j)]))||(s.games[u.uid]&&Object.keys(s.games[u.uid]).length>0);}
-function modUnits(m,tri){return m.tris.filter(t=>(!tri||t.n===tri)&&triOn(t.n)).flatMap(t=>t.units);}
+function modUnits(m,tri){return m.tris.filter(t=>(!tri||t.n===tri)&&triOn(t.n)).flatMap(t=>t.units).filter(unitOn);}
 function seenUnits(m){return m.tris.filter(t=>triOn(t.n)).flatMap(t=>t.units).filter(u=>u.kind!=='dia'||true).filter(unitSeen);}
 function candidates(units){
   const out=[];
@@ -5575,9 +5594,9 @@ function render(){
   if(!S()&&view.name!=='entry'&&view.name!=='teacher'&&view.name!=='spin'){view={name:'entry'};hist[hpos]=view;} /* sin alumno elegido solo hay entrada y panel del profe */
   try{if(S()&&!openAll()){
     const u=view.unit&&UBY[view.unit];
-    if(u&&!triOn(u.tri.n)){view={name:'mod',mod:u.mod.id,tab:'fichas',tri:u.tri.n};hist[hpos]=view;}
+    if(u&&!unitOn(u)){view={name:'mod',mod:u.mod.id,tab:'fichas',tri:u.tri.n,shut:triOn(u.tri.n)?u.uid:null};hist[hpos]=view;}
     else if(view.name==='sim'&&SBY[view.sim]&&simLocked(SBY[view.sim])){view={name:'mod',mod:MBY[view.mod]?view.mod:SBY[view.sim].mods[0],tab:'fichas'};hist[hpos]=view;}
-    else if(view.name==='session'&&MBY[view.mod]){const ses=sessionById(view.mod,view.sid);if(ses&&!triOn(sesTri(MBY[view.mod],ses))){view={name:'mod',mod:view.mod,tab:'plan',week:ses.w};hist[hpos]=view;}}
+    else if(view.name==='session'&&MBY[view.mod]){const ses=sessionById(view.mod,view.sid);if(ses&&!sesOpen(MBY[view.mod],ses)){view={name:'mod',mod:view.mod,tab:'plan',week:ses.w};hist[hpos]=view;}}
     else if(view.name==='train'&&Array.isArray(view.units))view.units=view.units.filter(id=>UBY[id]&&triOn(UBY[id].tri.n));
   }}catch(e){}
   document.querySelectorAll('.toast,.modal-bd').forEach(e=>e.remove());
@@ -5856,7 +5875,7 @@ function tabPlan(m){
   let wi=view.week!=null?view.week:nowI;wi=Math.max(0,Math.min(pl.weeks.length-1,wi));
   const w=pl.weeks[wi],nx=nextSession(m),s=S(),ut=w.ut?utData(m,w.ut):null;
   const bar=h('div',{class:'weeks',role:'group','aria-label':'Semanas del curso'},pl.weeks.map(x=>
-    h('button',{type:'button',class:(x.i===wi?'cur':'')+(x.i===nowI?' now':'')+(triOn(weekTri(m,x))?'':' tri-off'),'aria-pressed':String(x.i===wi),'aria-label':triOn(weekTri(m,x))?null:'Semana '+(x.i+1)+', trimestre cerrado',
+    h('button',{type:'button',class:(x.i===wi?'cur':'')+(x.i===nowI?' now':'')+(triOn(weekTri(m,x))&&isoOpen(x.mon)?'':' tri-off'),'aria-pressed':String(x.i===wi),'aria-label':triOn(weekTri(m,x))&&isoOpen(x.mon)?null:'Semana '+(x.i+1)+', cerrada',
       onclick:()=>go({name:'mod',mod:m.id,tab:'plan',week:x.i},true)},
       h('span',null,'Semana '+(x.i+1)),h('span',{class:'wd'},(([a,b])=>a===b?fmtDMiso(a):fmtDMiso(a)+' – '+fmtDMiso(b))(weekSpan(x))),h('small',null,x.sess.length+' sesiones'))));
   const wt=weekTri(m,w);
@@ -5866,6 +5885,14 @@ function tabPlan(m){
       h('div',{class:'grp'},h('h2',null,'Semana '+(wi+1)+' · '+weekRange(w))),
       h('div',{class:'tri-lock',role:'status'},h('span',{class:'tri-lock-i'},gl('lock')),
         h('h2',null,'Esta semana es del '+(T?T.name:'siguiente trimestre')),h('p',null,'Está cerrada. La abre el profe cuando toque.'),
+        h('button',{class:'btn primary',type:'button',onclick:()=>go({name:'mod',mod:m.id,tab:'plan',week:nowI},true)},'Ir a esta semana')));
+  }
+  if(!isoOpen(w.mon)){
+    const [a]=weekSpan(w);
+    return h('section',null,bar,
+      h('div',{class:'grp'},h('h2',null,'Semana '+(wi+1)+' · '+weekRange(w))),
+      h('div',{class:'tri-lock',role:'status'},h('span',{class:'tri-lock-i'},gl('lock')),
+        h('h2',null,'Esta semana todavía no ha llegado'),h('p',null,'Se abre el '+longISO(a)+'. Ahora toca la semana de hoy.'),
         h('button',{class:'btn primary',type:'button',onclick:()=>go({name:'mod',mod:m.id,tab:'plan',week:nowI},true)},'Ir a esta semana')));
   }
   const done=w.sess.filter(x=>sessStatus(x)==='done').length;
@@ -5913,6 +5940,7 @@ function tabFichas(m){
   if(dias.length)groups.push({t:'Nuestra Cafetería',s:'Días de centro',us:dias});
   const card=u=>{
     const st=unitStats(u),dn=st.pd===st.np,gs=gameStars(u),has=unitSeen(u),rv=st.ex+[1,2,3,4].filter(k=>gameRec(u.uid,k).ex).length;
+    if(!unitOn(u)){const fd=unitFirst(u);return h('div',{class:'ucard ulock','aria-label':u.title+', cerrada'},tile(u.ic),h('span',{class:'lab'+(u.kind==='aae'?'':' sun')},unitLabel(u)),h('h3',null,u.title),h('span',{class:'ulock-t'},gl('lock'),fd?'Se abre el '+fmtDMiso(monOf(fd)):'Cerrada'));}
     return h('button',{class:'ucard'+(dn?' done':'')+(rv?' rev':''),type:'button',onclick:()=>go({name:'unit',unit:u.uid,page:0})},
       tile(u.ic),h('span',{class:'lab'+(u.kind==='aae'?'':' sun')},unitLabel(u)),h('h3',null,u.title),
       h('span',{class:'dots','aria-label':st.pd+' de '+st.np+' páginas hechas, '+gs+' estrellas de 12'},
@@ -7474,7 +7502,11 @@ function tabAjustes(v){
     return b;};
   const triBox=h('div',{class:'aula-box'},h('h2',{class:'sec',style:'margin-top:0'},'Trimestres abiertos para el alumnado'),
     h('p',{class:'note'},'El 1.er trimestre está siempre abierto. Los demás salen con candado y el alumnado no puede entrar en sus fichas, juegos ni talleres hasta que los abras aquí. Tú los sigues viendo todos en el modo prueba y en la demostración.'),
-    h('div',{class:'row'},triSw(2)),h('div',{class:'row'},triSw(3)));
+    h('div',{class:'row'},triSw(2)),h('div',{class:'row'},triSw(3)),
+    h('h3',{class:'sy-h3'},'Semana a semana'),
+    h('p',{class:'note'},'Con esto activado, cada alumno solo entra en las sesiones de esta semana y de las anteriores (las atrasadas siguen abiertas), y en las fichas que el plan ya ha sacado. La semana siguiente se abre sola el lunes. Si el grupo va más deprisa, adelanta el plan en el Cuaderno de aula o desactiva esto.'),
+    h('div',{class:'row'},(()=>{const on=!c.wkOff;const b=h('button',{class:'chk'+(on?' on':''),type:'button','aria-pressed':String(on)},h('span',{class:'ck'},gl('check')),h('span',null,'Abrir las sesiones semana a semana'));
+      b.addEventListener('click',()=>{c.wkOff=on;save();say(on?'Ahora el alumnado puede entrar en todas las sesiones y fichas de los trimestres abiertos.':'Ahora las sesiones se abren semana a semana.');re();});return b;})()));
   return h('div',null,msg,triBox,crit,roster,spin,motiv,demoBox,vozBox(say),
     h('div',{class:'aula-box'},h('h2',{class:'sec',style:'margin-top:0'},'Modo prueba'),open,h('p',{class:'note'},'Para probar sin tocar los resultados, usa los botones «Ver la ficha» y «Probar el juego» de la pestaña Programación: entran con un alumno de prueba que no cuenta.')),
     copias,syBox(say),aula,seg2,del);
@@ -7625,7 +7657,7 @@ async function syTick(force){
    todo lo que ese alumno tiene guardado desde cualquier equipo y lo une con lo de aquí (mergeStu, sin duplicar). Las filas de otros equipos que ya se han
    unido se borran en la hoja con el siguiente envío (solo si no han cambiado desde entonces).
    Los ajustes del profe (cuaderno de aula, calendario, por dónde vamos, PIN del alumnado...) viajan igual en un registro aparte («__profe»). */
-const PROF_N='__profe',PROF_KEYS=['tri','notes','cal','ptr','nodays','start','sp','spOff','roster','rg','free','thr','max'];
+const PROF_N='__profe',PROF_KEYS=['tri','wkOff','notes','cal','ptr','nodays','start','sp','spOff','roster','rg','free','thr','max'];
 function profSnap(){const c=cfg(),o={};PROF_KEYS.forEach(k=>{o[k]=c[k];});return JSON.stringify(o);}
 const PROF_DEF=(()=>{const o={};PROF_KEYS.forEach(k=>{const d=CFG_DEF[k];o[k]=Array.isArray(d)?[]:(d&&typeof d==='object')?{}:d;});return JSON.stringify(o);})();
 function profApply(rec){
