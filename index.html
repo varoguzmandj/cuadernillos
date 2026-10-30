@@ -1317,6 +1317,7 @@ button.kim-it:hover{border-color:var(--brand)}
 .tri-lock{display:grid;justify-items:center;gap:10px;text-align:center;margin-top:22px;padding:28px 20px;border-radius:var(--r);border:2px dashed var(--line);background:var(--surface)}
 .tri-lock h2{margin:0;font:600 1.5rem var(--f-display)}.tri-lock p{margin:0;color:var(--ink-2);font-size:1.1rem}
 .tri-lock-i{display:grid;place-items:center;width:72px;height:72px;border-radius:50%;background:var(--sun-soft);color:var(--sun-ink)}.tri-lock-i svg{width:36px;height:36px}
+.weeks button.tri-off{opacity:.55;border-style:dashed}
 </style>
 
 <div id="app" lang="es"></div>
@@ -1443,6 +1444,9 @@ if(store.last&&store.students[store.last].test)store.last=null;   /* nunca se ar
 const openAll=()=>!!(store.openAll||(S()&&S().test));
 /* trimestres abiertos (versión 25): el 1.º siempre; el 2.º y el 3.º cuando el profe los abre en Ajustes. Solo cierra a un alumno real: el profe, el alumno de prueba y la demostración lo ven todo */
 const triOn=n=>n===1||!S()||openAll()||!!((cfg().tri||{})[n]);
+const utTri=(m,ut)=>{const t=ut?m.tris.find(t=>t.uts.some(z=>z[0]===ut)):null;return t?t.n:0;};
+function sesTri(m,ses){let n=utTri(m,ses.ut);const u=ses.u&&UBY[ses.u];if(u)n=Math.max(n,u.tri.n);(ses.items||[]).forEach(it=>{const v=it.u&&UBY[it.u];if(v)n=Math.max(n,v.tri.n);});return n||1;}
+function weekTri(m,w){let n=utTri(m,w.ut);(w.sess||[]).forEach(x=>{n=Math.max(n,sesTri(m,x));});return n||1;}
 function simLocked(sm){const us=UNITS.filter(u=>sm.mods.includes(u.mod.id)&&sm.units.includes(u.key));return us.length>0&&us.every(u=>!triOn(u.tri.n));}
 
 /* ================= utilidades ================= */
@@ -5456,7 +5460,9 @@ function curWeek(m){
   if(!w)w=pl.weeks[0];
   return w.i;
 }
-function weekRange(w){return fmtISO(w.mon)+' – '+fmtISO(addDaysISO(w.mon,4));}
+function weekSpan(w){const d=[0,1,2,3,4].map(k=>addDaysISO(w.mon,k)).filter(isSchool);return d.length?[d[0],d[d.length-1]]:[w.mon,addDaysISO(w.mon,4)];}
+function weekRange(w){const [a,b]=weekSpan(w);return a===b?fmtISO(a):fmtISO(a)+' – '+fmtISO(b);}
+function weekRange0(w){return fmtISO(w.mon)+' – '+fmtISO(addDaysISO(w.mon,4));}
 
 /* ---------- rutina de la sesión (agenda visual), ajustada a la hora lectiva de 55 min ---------- */
 const BLOQUES=[
@@ -5571,6 +5577,7 @@ function render(){
     const u=view.unit&&UBY[view.unit];
     if(u&&!triOn(u.tri.n)){view={name:'mod',mod:u.mod.id,tab:'fichas',tri:u.tri.n};hist[hpos]=view;}
     else if(view.name==='sim'&&SBY[view.sim]&&simLocked(SBY[view.sim])){view={name:'mod',mod:MBY[view.mod]?view.mod:SBY[view.sim].mods[0],tab:'fichas'};hist[hpos]=view;}
+    else if(view.name==='session'&&MBY[view.mod]){const ses=sessionById(view.mod,view.sid);if(ses&&!triOn(sesTri(MBY[view.mod],ses))){view={name:'mod',mod:view.mod,tab:'plan',week:ses.w};hist[hpos]=view;}}
     else if(view.name==='train'&&Array.isArray(view.units))view.units=view.units.filter(id=>UBY[id]&&triOn(UBY[id].tri.n));
   }}catch(e){}
   document.querySelectorAll('.toast,.modal-bd').forEach(e=>e.remove());
@@ -5849,9 +5856,18 @@ function tabPlan(m){
   let wi=view.week!=null?view.week:nowI;wi=Math.max(0,Math.min(pl.weeks.length-1,wi));
   const w=pl.weeks[wi],nx=nextSession(m),s=S(),ut=w.ut?utData(m,w.ut):null;
   const bar=h('div',{class:'weeks',role:'group','aria-label':'Semanas del curso'},pl.weeks.map(x=>
-    h('button',{type:'button',class:(x.i===wi?'cur':'')+(x.i===nowI?' now':''),'aria-pressed':String(x.i===wi),
+    h('button',{type:'button',class:(x.i===wi?'cur':'')+(x.i===nowI?' now':'')+(triOn(weekTri(m,x))?'':' tri-off'),'aria-pressed':String(x.i===wi),'aria-label':triOn(weekTri(m,x))?null:'Semana '+(x.i+1)+', trimestre cerrado',
       onclick:()=>go({name:'mod',mod:m.id,tab:'plan',week:x.i},true)},
-      h('span',null,'Semana '+(x.i+1)),h('span',{class:'wd'},fmtDMiso(x.mon)+' – '+fmtDMiso(addDaysISO(x.mon,4))),h('small',null,x.sess.length+' sesiones'))));
+      h('span',null,'Semana '+(x.i+1)),h('span',{class:'wd'},(([a,b])=>a===b?fmtDMiso(a):fmtDMiso(a)+' – '+fmtDMiso(b))(weekSpan(x))),h('small',null,x.sess.length+' sesiones'))));
+  const wt=weekTri(m,w);
+  if(!triOn(wt)){
+    const T=m.tris.find(t=>t.n===wt);
+    return h('section',null,bar,
+      h('div',{class:'grp'},h('h2',null,'Semana '+(wi+1)+' · '+weekRange(w))),
+      h('div',{class:'tri-lock',role:'status'},h('span',{class:'tri-lock-i'},gl('lock')),
+        h('h2',null,'Esta semana es del '+(T?T.name:'siguiente trimestre')),h('p',null,'Está cerrada. La abre el profe cuando toque.'),
+        h('button',{class:'btn primary',type:'button',onclick:()=>go({name:'mod',mod:m.id,tab:'plan',week:nowI},true)},'Ir a esta semana')));
+  }
   const done=w.sess.filter(x=>sessStatus(x)==='done').length;
   const mins=w.sess.reduce((a,x)=>a+x.mins+ROUT_MIN,0);
   return h('section',null,
